@@ -18,7 +18,6 @@ class Coordinator:
         self.use_crewai = ENABLE_CREWAI if use_crewai is None else use_crewai
         self.max_workers = max_workers
 
-
     def run_for_domain(self, domain: str) -> DomainResult:
         result = DomainResult(domain=domain)
 
@@ -27,14 +26,24 @@ class Coordinator:
         ssl_agent = SSLAgent()
         osint_agent = OSINTAgent()
 
-        # Паралельний запуск основних агентів
+        # 1) Збираємо пасивні субдомени ОДИН РАЗ
+        try:
+            passive_subs = osint_agent.passive_subdomains(domain)
+        except Exception:
+            passive_subs = []
+
+        # Передаємо в DNSAgent (і за бажанням в OSINTAgent)
+        dns_agent.set_shared("passive_subs", passive_subs)
+        osint_agent.set_shared("passive_subs", passive_subs)  # опціонально
+
+        # 2) Тепер паралельно запускаємо whois/dns/ssl
         with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
             futures = {
                 ex.submit(whois_agent.run, domain): "whois",
                 ex.submit(dns_agent.run, domain): "dns",
                 ex.submit(ssl_agent.run, domain): "ssl",
             }
-            intermediate: Dict[str, object] = {}
+            intermediate = {}
             for fut in as_completed(futures):
                 name = futures[fut]
                 try:
@@ -42,13 +51,9 @@ class Coordinator:
                 except Exception as e:
                     result.add_error(name, e)
 
-        # Передаємо A‑записи в OSINT‑агент для Shodan (якщо будуть ключі)
+        # 3) Після цього запускаємо повноцінний osint (який може робити shodan та ін.)
         try:
-            a_records = []
-            dns_res = intermediate.get("dns")
-            if dns_res and getattr(dns_res, "records", None):
-                a_records = [r.split()[0] if " " in r else r for r in dns_res.records.get("A", [])]
-            osint_agent.set_shared("a_records", a_records)
+            # osint_agent вже має passive_subs у shared для використання
             osint_res = osint_agent.run(domain)
         except Exception as e:
             result.add_error("osint", e)

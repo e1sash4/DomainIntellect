@@ -1,15 +1,16 @@
 from __future__ import annotations
 from typing import List, Set
 
-
 from models import OSINTResult, ShodanHost
 from agents.base import BaseAgent
-from src.util import fetch_json
-from src.settings import SHODAN_API_KEY
+from util import fetch_json
+from settings import SHODAN_API_KEY
 
 class OSINTAgent(BaseAgent):
     name = "osint"
 
+    def passive_subdomains(self, domain: str) -> List[str]:
+        return self._crtsh(domain)
 
     def _crtsh(self, domain: str) -> List[str]:
         # Використовуємо публічний інтерфейс crt.sh (без ключа)

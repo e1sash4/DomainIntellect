@@ -6,3 +6,4 @@ pydantic~=2.12.3
 python-dotenv~=1.2.1
 crewai~=1.2.1
 whois~=1.20240129.2
+agents~=1.4.0

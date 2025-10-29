@@ -3,20 +3,19 @@ import time
 import socket
 import idna
 import requests
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Tuple, Type
 from settings import USER_AGENT, HTTP_TIMEOUT
 
 class RetryError(Exception):
     pass
 
-def retry(
+def make_retry(
     tries: int = 3,
     delay: float = 0.5,
     backoff: float = 2.0,
-    exceptions: tuple[type[BaseException], ...] = (Exception,),
+    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Простий декоратор для повторних спроб з експоненційною затримкою."""
-
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             _tries, _delay = tries, delay
@@ -31,11 +30,11 @@ def retry(
                         break
                     time.sleep(_delay)
                     _delay *= backoff
-                raise RetryError(f"Retries exhausted for {func.__name__}") from last_exc
-            return wrapper
-        return decorator
+            raise RetryError(f"Retries exhausted for {func.__name__}") from last_exc
+        return wrapper
+    return decorator
 
-@retry(tries=3, delay=0.4, backoff=2.0, exceptions=(requests.RequestException,))
+@make_retry(tries=3, delay=0.4, backoff=2.0, exceptions=(requests.RequestException,))
 def fetch_json(url: str, params: Optional[dict[str, Any]] = None, timeout: float = HTTP_TIMEOUT) -> Any:
     headers = {"User-Agent": USER_AGENT}
     r = requests.get(url, params=params, headers=headers, timeout=timeout)
@@ -49,7 +48,6 @@ def to_idna(domain: str) -> str:
     domain = domain.strip().strip('.')
     if not domain:
         return domain
-    # Розбиваємо на labels і кодуємо кожну
     labels = [idna.encode(label).decode('ascii') for label in domain.split('.')]
     return '.'.join(labels)
 

@@ -128,7 +128,7 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
     )
 
     crew = Crew(
-        agents = [coordinator, whois_specialist, dns_specialist, ssl_specialist, osint_specialist],
+        agents=[whois_specialist, dns_specialist, ssl_specialist, osint_specialist],
         tasks = [t_whois, t_dns, t_ssl, t_osint],
         process = Process.hierarchical,  # менеджер делегує підзадачі
         manager_agent = coordinator,  # або manager_llm=...

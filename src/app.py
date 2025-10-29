@@ -8,6 +8,7 @@ import streamlit as st
 from coordinator import Coordinator
 from models import DomainResult
 from settings import ENABLE_CREWAI
+from crew_setup import make_crew, build_summary_prompt
 
 try:
     from crewai_agents import run_domain_with_crewai
@@ -143,6 +144,23 @@ if run_btn and raw_input.strip():
                     mime="application/json",
                     data=blob.encode("utf-8"),
                 )
+
+    if enable_crewai:
+        crew = make_crew()
+        if crew:
+            result = crew.kickoff(inputs={"facts": build_summary_prompt(res)})
+            # Прагматично пробуємо обидва шляхи доступу до тексту:
+            text = None
+            # 1) новіші/поширені білди: CrewOutput має .raw
+            if hasattr(result, "raw") and result.raw:
+                text = result.raw
+            # 2) інколи зручно читати з об’єкта crew після виконання (crew.output.raw)
+            elif hasattr(crew, "output") and crew.output:
+                # crew.output теж CrewOutput
+                text = getattr(crew.output, "raw", None) or str(crew.output)
+
+            st.markdown("### 🤖 AI-Звіт (CrewAI аналітик)")
+            st.markdown(text or "Немає результату.")
 
 else:
     st.info("Введи один або кілька доменів і натисни **Запустити аналіз**.")
