@@ -136,7 +136,7 @@ if run_btn and raw_input.strip():
                     st.write("—")
 
             with tab_json:
-                blob = json.dumps(res.model_dump(), ensure_ascii=False, indent=2)
+                blob = json.dumps(res.model_dump(mode="json"), ensure_ascii=False, indent=2)
                 st.code(blob, language="json")
                 st.download_button(
                     label="⬇️ Завантажити JSON",
