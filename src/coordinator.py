@@ -1,14 +1,28 @@
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict
 
-from models import DomainResult
-from agents.whois_agent import WhoisAgent
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from agents.dns_agent import DNSAgent
-from agents.ssl_agent import SSLAgent
 from agents.osint_agent import OSINTAgent
+from agents.ssl_agent import SSLAgent
+from agents.whois_agent import WhoisAgent
+from models import DomainResult
 from settings import ENABLE_CREWAI
 
+import socket
+
+def _resolve_ipv4_bulk(hosts: list[str]) -> list[str]:
+    """Резолвить список хостів у IPv4 через системний резолвер (getaddrinfo)."""
+    ips = set()
+    for h in hosts:
+        try:
+            for info in socket.getaddrinfo(h, None):
+                ip = info[4][0]
+                if ip and ip.count(".") == 3:
+                    ips.add(ip)
+        except Exception:
+            continue
+    return list(ips)
 
 class Coordinator:
     """Координатор: запускає підлеглі агенти паралельно та агрегує результати."""
@@ -50,6 +64,31 @@ class Coordinator:
                     intermediate[name] = fut.result()
                 except Exception as e:
                     result.add_error(name, e)
+
+        dns_res = intermediate.get("dns")
+        a_ips = []
+        if dns_res and dns_res.records:
+            # лишаємо тільки IPv4, щоб shodan.host працював стабільно
+            a_ips = [ip for ip in dns_res.records.get("A", []) if ip and ip.count(".") == 3]
+
+        # NEW: добираємо IPv4 також для піддоменів (перші 25 піддоменів)
+        seeds = [domain]
+        if dns_res and dns_res.subdomains_found:
+            seeds += dns_res.subdomains_found[:25]
+
+        # резолвимо додаткові IP, навіть якщо apx мав IP
+        try:
+            extra_ips = _resolve_ipv4_bulk(seeds)
+        except Exception:
+            extra_ips = []
+
+        # унікалізуємо і відфільтровуємо валідні IPv4
+        a_ips = sorted({*(a_ips or []), *(extra_ips or [])})
+
+        # прокинемо IP у OSINT-агент
+        osint_agent.set_shared("a_records", a_ips)
+
+        print("DEBUG A_IPS:", a_ips)
 
         # 3) Після цього запускаємо повноцінний osint (який може робити shodan та ін.)
         try:

@@ -41,6 +41,17 @@ class ShodanHost(BaseModel):
     org: Optional[str] = None
     hostnames: List[str] = Field(default_factory=list)
 
+    # нові поля:
+    country: Optional[str] = None
+    city: Optional[str] = None
+    asn: Optional[str] = None
+    isp: Optional[str] = None
+    os: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    vulns: List[str] = Field(default_factory=list)
+    cpes: List[str] = Field(default_factory=list)
+    services: List[Dict[str, Any]] = Field(default_factory=list)
+
 
 class OSINTResult(BaseModel):
     crtsh_names: List[str] = Field(default_factory=list)

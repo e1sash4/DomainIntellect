@@ -61,68 +61,114 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
 
     whois_specialist = Agent(
         role="WHOIS Specialist",
-        goal=("Отримати валідний WhoisResult у JSON без вільного тексту."),
-        backstory=("Реєстри доменів — твоє все; вмієш обходити дивні поля та формати."),
+        goal=("Отримати повну, валідну та структуровану інформацію WHOIS про домен "
+              "у форматі JSON, включаючи дані про реєстратора, дати створення/закінчення, "
+              "стани домену, контактну інформацію (якщо доступна) та технічні поля."),
+        backstory=("Ти — досвідчений аналітик доменних реєстрів, який розуміє специфіку "
+                   "WHOIS-запитів для різних TLD та уміє інтерпретувати нетипові формати "
+                   "відповідей. Знаєш, що частина полів може бути прихована, а деякі — подані "
+                   "в іншому кодуванні або структурі. "),
         tools=[whois_tool], allow_delegation=False, verbose=True,
     )
     dns_specialist = Agent(
         role="DNS Specialist",
-        goal="Побудувати повну картину DNS‑записів і знайдених субдоменів (JSON).",
-        backstory="Майстер dnspython і пасивного виявлення; не вигадуй — повертай дані інструмента.",
+        goal=("Побудувати повну та достовірну картину DNS-структури досліджуваного домену, "
+              "включаючи A, AAAA, NS, MX, TXT, CNAME-записи та знайдені субдомени. "
+              "Всі результати повинні бути повернуті у форматі JSON."),
+        backstory=("Ти — аналітик DNS-інфраструктури, який чудово знає принципи роботи DNS, "
+                   "уміє відрізняти реальні записи від кешованих або застарілих, "
+                   "і здатний інтегрувати результати як активного, так і пасивного збору. "
+                   "Ти не вигадуєш, а точно відображаєш дані, які повертає інструмент."),
         tools=[dns_tool], allow_delegation=False, verbose=True,
     )
     ssl_specialist = Agent(
-        role="TLS/SSL Specialist",
-        goal="Зняти сертифікат і повернути структуровані поля (JSON).",
-        backstory="Сертифікати — твоя стихія; орієнтуєшся в SAN/issuer/термінах дії.",
+        role="SSL/TLS Specialist",
+        goal=("Отримати з сервера цільового домену дійсний SSL/TLS-сертифікат, "
+              "розібрати його структуру та повернути усі релевантні поля у форматі JSON: "
+              "subject, issuer, serial_number, fingerprints, SAN, not_before, not_after тощо."),
+        backstory=("Ти — криптоаналітик, який спеціалізується на сертифікатах безпеки. "
+                   "Знаєш структуру X.509, умієш працювати із закінченими або недійсними "
+                   "сертифікатами, розумієш важливість ланцюга довіри та полів SAN. "
+                   "Твоя задача — надати достовірну технічну інформацію про сертифікат."),
         tools=[ssl_tool], allow_delegation=False, verbose=True,
     )
     osint_specialist = Agent(
         role="OSINT Specialist",
-        goal="Пасивно зібрати назви з crt.sh та хости Shodan (JSON).",
-        backstory="Полюєш за артефактами з відкритих джерел, дотримуючись лімітів.",
+        goal=("Зібрати з відкритих джерел усю доступну публічну інформацію про домен, "
+              "використовуючи пасивні методи — зокрема дані з сервісів crt.sh, Shodan. "
+              "Результат має бути представлений у форматі JSON."),
+        backstory=("Ти — OSINT-аналітик, який досконало володіє методами пасивної розвідки. "
+                   "Ти вмієш обережно працювати з відкритими джерелами, дотримуючись лімітів "
+                   "API та не створюючи зайвих запитів. Ти орієнтований на точність, "
+                   "а не кількість, і повертаєш лише достовірні дані у структурованому вигляді."),
         tools=[osint_tool], allow_delegation=False, verbose=True,
     )
 
     coordinator = Agent(
         role="Coordinator",
-        goal=(
-            "Скоординувати підзадачі WHOIS/DNS/SSL/OSINT, зібрати частини у єдину відповідь."),
-        backstory=(
-            "Дієш як технічний менеджер: делегуєш, перевіряєш, просиш рівно JSON без води."),
+        goal=("Організувати послідовне та узгоджене виконання підзадач "
+              "WHOIS, DNS, SSL і OSINT-агентами. Забезпечити збір їх результатів, "
+              "перевірку цілісності, формування єдиного інтегрованого JSON-звіту "
+              "для подальшого аналізу кіберзагроз."),
+        backstory=("Ти — координатор мультиагентної системи. Маєш навички технічного "
+                   "керівництва, плануєш виконання завдань, контролюєш коректність "
+                   "повернених результатів і об’єднуєш їх у єдину структуру. "
+                   "Твоя мета — забезпечити точність, повноту і єдність формату результату."),
         allow_delegation=True, verbose=True,
     )
 
     # Завдання для кожного спеціаліста; просимо повернути ЛИШЕ JSON інструмента
     t_whois = Task(
         description=(
-            "Для домену {domain}: виклич whois_lookup та поверни ЛИШЕ його JSON (WhoisResult)."),
+            "Виконай повний WHOIS-запит для домену {domain}. "
+            "Використай інструмент whois_lookup, оброби всі отримані дані та "
+            "поверни результат у вигляді строго структурованого JSON-об’єкта, "
+            "що відповідає моделі WhoisResult. Не додавай текстових коментарів, "
+            "описів або пояснень. Якщо певні поля відсутні — поверни null."),
         agent = whois_specialist,
-        expected_output = "Валідний JSON WhoisResult без додаткового тексту.",
+        expected_output=(
+            "JSON-об’єкт типу WhoisResult, який містить повний набір доступних даних WHOIS "
+            "(домен, реєстратор, creation_date, expiry_date, status, emails, name_servers тощо) "
+            "без додаткових текстових вставок."),
         output_pydantic = WhoisResult,
         tools = [whois_tool],
     )
     t_dns = Task(
-        description = (
-            "Для домену {domain}: виклич dns_enumeration та поверни ЛИШЕ його JSON (DNSResult)."),
+        description=(
+            "Для домену {domain} здійсни повне отримання DNS-записів усіх основних типів "
+            "(A, AAAA, MX, NS, TXT, CNAME) за допомогою інструмента dns_enumeration. "
+            "За можливості виконай пасивне виявлення субдоменів. "
+            "Результат представ у вигляді строго структурованого JSON (DNSResult)."),
         agent = dns_specialist,
-        expected_output = "Валідний JSON DNSResult без додаткового тексту.",
+        expected_output=(
+            "JSON-об’єкт типу DNSResult, що містить усі виявлені записи DNS для домену "
+            "та знайдені субдомени (якщо доступні), без текстових коментарів або описів."),
         output_pydantic = DNSResult,
         tools = [dns_tool],
     )
     t_ssl = Task(
-        description = (
-            "Для домену {domain}: виклич ssl_cert_intel та поверни ЛИШЕ його JSON (SSLResult)."),
+        description=(
+            "Виконай з’єднання з доменом {domain} через SSL/TLS та зніми сертифікат. "
+            "Проаналізуй отриманий X.509-сертифікат, вилучи всі основні поля "
+            "(subject, issuer, SAN, not_before, not_after, fingerprints, serial_number тощо). "
+            "Результат представ у вигляді валідного JSON відповідно до моделі SSLResult."),
         agent = ssl_specialist,
-        expected_output = "Валідний JSON SSLResult без додаткового тексту.",
+        expected_output=(
+            "JSON-об’єкт типу SSLResult, який містить усі ключові атрибути SSL/TLS-сертифіката "
+            "без додаткових коментарів чи текстових вставок."),
         output_pydantic = SSLResult,
         tools = [ssl_tool],
     )
     t_osint = Task(
-        description = (
-            "Для домену {domain}: виклич osint_passive та поверни ЛИШЕ його JSON (OSINTResult)."),
+        description=(
+            "Для домену {domain} виконай пасивне збирання даних з відкритих джерел: "
+            "отримай перелік доменів/піддоменів із бази crt.sh, знайди пов’язані хости "
+            "у Shodan або Censys (якщо доступно). "
+            "Поверни результат у вигляді структурованого JSON, що відповідає моделі OSINTResult."),
         agent = osint_specialist,
-        expected_output = "Валідний JSON OSINTResult без додаткового тексту.",
+        expected_output=(
+            "JSON-об’єкт типу OSINTResult, який містить знайдені артефакти з відкритих джерел "
+            "(сертифікати з crt.sh, IP- або хости зі Shodan/Censys) без додаткових описів."),
         output_pydantic = OSINTResult,
         tools = [osint_tool],
     )
@@ -130,8 +176,8 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
     crew = Crew(
         agents=[whois_specialist, dns_specialist, ssl_specialist, osint_specialist],
         tasks = [t_whois, t_dns, t_ssl, t_osint],
-        process = Process.hierarchical,  # менеджер делегує підзадачі
-        manager_agent = coordinator,  # або manager_llm=...
+        process = Process.hierarchical,
+        manager_agent = coordinator,
         verbose = True,
     )
 
@@ -145,15 +191,12 @@ def run_domain_with_crewai(domain: str) -> DomainResult:
     _ = crew.kickoff(inputs={"domain": domain})
 
 
-    # Дістаємо структуровані виходи кожної задачі (CrewAI зберігає їх у task.output)
     def _load(task: Task, model):
         try:
-            # у більшості версій є .output.json()
-            data = json.loads(task.output.json())
+            data = json.loads(task.output.json)
             return model(**data)
         except Exception:
             try:
-                # іноді .output.raw або вже dict/str
                 raw = getattr(task.output, "raw", None)
                 if isinstance(raw, dict):
                     return model(**raw)

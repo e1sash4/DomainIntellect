@@ -130,8 +130,26 @@ if run_btn and raw_input.strip():
                     if res.osint.crtsh_names:
                         st.code("\n".join(res.osint.crtsh_names[:200]))
                     if res.osint.shodan_hosts:
-                        st.write("**Shodan hosts:**")
-                        st.json([h.model_dump() for h in res.osint.shodan_hosts])
+                        st.subheader("Shodan hosts:")
+                        for h in res.osint.shodan_hosts:
+                            st.markdown(f"**{h.ip}** — {', '.join(map(str, h.ports)) if h.ports else 'no ports'}")
+                            st.write({
+                                "org": h.org,
+                                "hostnames": h.hostnames,
+                                "country": h.country,
+                                "city": h.city,
+                                "asn": h.asn,
+                                "isp": h.isp,
+                                "os": h.os,
+                                "tags": h.tags,
+                                "vulns": h.vulns,
+                                "cpes": h.cpes,
+                            })
+                            # серіалізація services
+                            if h.services:
+                                st.markdown("**Services / banners:**")
+                                for s in h.services:
+                                    st.write(s)
                 else:
                     st.write("—")
 
