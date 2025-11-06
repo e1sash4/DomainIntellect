@@ -31,9 +31,10 @@ ENABLE_CREWAI: bool = os.getenv("ENABLE_CREWAI", "false").lower() in {"1", "true
 # Ключі для зовнішніх сервісів (опційно)
 # --------------------
 SHODAN_API_KEY: str | None = os.getenv("SHODAN_API_KEY")
-CENSYS_API_ID: str | None = os.getenv("CENSYS_API_ID")
-CENSYS_API_SECRET: str | None = os.getenv("CENSYS_API_SECRET")
+
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")  # для CrewAI/LLM, якщо потрібен
+
+VIRUSTOTAL_API_KEY: str | None = os.getenv("VIRUSTOTAL_API_KEY") or os.getenv("VT_API_KEY")
 
 # --------------------
 # Словник субдоменів: або вбудований короткий список, або шлях до великого файлу

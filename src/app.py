@@ -9,12 +9,7 @@ from coordinator import Coordinator
 from models import DomainResult
 from settings import ENABLE_CREWAI
 from crew_setup import make_crew, build_summary_prompt
-
-try:
-    from crewai_agents import run_domain_with_crewai
-    CREW_AVAILABLE = True
-except Exception:
-    CREW_AVAILABLE = False
+from crewai_agents import run_domain_with_crewai
 
 st.set_page_config(page_title="OSINT Multi‑Agent Domain Analyzer", layout="wide")
 
@@ -25,7 +20,7 @@ with st.sidebar:
     st.header("Налаштування")
     enable_crewai = st.toggle("Використовувати CrewAI для зведення", value=ENABLE_CREWAI)
     use_crewai_agents = st.toggle("Запускати усі агенти як CrewAI", value=False,
-                                  help="WHOIS/DNS/SSL/OSINT через CrewAI‑агентів") if CREW_AVAILABLE else False
+                                  help="WHOIS/DNS/SSL/OSINT через CrewAI‑агентів")
     max_workers = st.slider("Макс. паралельних агентів", 2, 16, 6)
     st.divider()
     st.markdown("**Порада:** залиш порожнім CrewAI, якщо не маєш LLM‑ключів — все працюватиме і без нього.")
@@ -92,8 +87,8 @@ if run_btn and raw_input.strip():
             cols[3].metric("A‑записів", a_count)
             cols[4].metric("Субдоменів", sub_count)
 
-            tab_over, tab_whois, tab_dns, tab_ssl, tab_osint, tab_json = st.tabs(
-                ["Огляд", "WHOIS", "DNS", "SSL", "OSINT", "JSON"]
+            tab_over, tab_whois, tab_dns, tab_ssl, tab_crt, tab_shodan, tab_vt, tab_json = st.tabs(
+                ["Огляд", "WHOIS", "DNS", "SSL", "CRT.sh", "Shodan", "VirusTotal", "JSON"]
             )
 
             with tab_over:
@@ -116,7 +111,7 @@ if run_btn and raw_input.strip():
                         st.write(f"**{rtype}**: ")
                         st.code("\n".join(vals) if vals else "—")
                     if res.dns.subdomains_found:
-                        st.write("**Субдомени (брют‑форс):**")
+                        st.write("**Субдомени (брут‑форс):**")
                         st.code("\n".join(res.dns.subdomains_found))
                 else:
                     st.write("—")
@@ -124,34 +119,84 @@ if run_btn and raw_input.strip():
             with tab_ssl:
                 st.write(res.ssl.model_dump() if res.ssl else "—")
 
-            with tab_osint:
-                if res.osint:
-                    st.write(f"**crt.sh** (імен): {len(res.osint.crtsh_names)}")
-                    if res.osint.crtsh_names:
-                        st.code("\n".join(res.osint.crtsh_names[:200]))
-                    if res.osint.shodan_hosts:
-                        st.subheader("Shodan hosts:")
-                        for h in res.osint.shodan_hosts:
-                            st.markdown(f"**{h.ip}** — {', '.join(map(str, h.ports)) if h.ports else 'no ports'}")
-                            st.write({
-                                "org": h.org,
-                                "hostnames": h.hostnames,
-                                "country": h.country,
-                                "city": h.city,
-                                "asn": h.asn,
-                                "isp": h.isp,
-                                "os": h.os,
-                                "tags": h.tags,
-                                "vulns": h.vulns,
-                                "cpes": h.cpes,
-                            })
-                            # серіалізація services
-                            if h.services:
-                                st.markdown("**Services / banners:**")
-                                for s in h.services:
-                                    st.write(s)
+            with tab_crt:
+                if res.crt and res.crt.crtsh_names:
+                    st.write(f"**crt.sh** (знайдено імен): {len(res.crt.crtsh_names)}")
+                    st.code("\n".join(res.crt.crtsh_names[:200]))
                 else:
                     st.write("—")
+
+            with tab_shodan:
+                if res.shodan and res.shodan.hosts:
+                    st.write(f"**Хостів у Shodan:** {len(res.shodan.hosts)}")
+                    for h in res.shodan.hosts:
+                        st.markdown(f"**{h.ip}** — {', '.join(map(str, h.ports)) if h.ports else 'no ports'}")
+                        st.write({
+                            "org": h.org,
+                            "hostnames": h.hostnames,
+                            "country": h.country,
+                            "city": h.city,
+                            "asn": h.asn,
+                            "isp": h.isp,
+                            "os": h.os,
+                            "tags": h.tags,
+                            "vulns": h.vulns,
+                            "cpes": h.cpes,
+                        })
+                        if h.services:
+                            st.markdown("**Services / banners:**")
+                            for s in h.services:
+                                st.write(s)
+                else:
+                    st.write("—")
+
+            with tab_vt:
+                vt = res.virustotal
+                if not vt:
+                    st.write("—")
+                else:
+                    st.write("### Загальне")
+                    st.write({
+                        "reputation": vt.reputation,
+                        "last_analysis_date": vt.last_analysis_date,
+                        "categories": vt.categories,
+                        "total_votes": vt.total_votes,
+                        "tags": vt.tags,
+                    })
+
+                    st.write("### Остання статистика аналізу")
+                    st.write(vt.last_analysis_stats.model_dump() if getattr(vt, "last_analysis_stats", None) else "—")
+
+                    if getattr(vt, "related_subdomains", None):
+                        st.write(f"**Пов'язані субдомени ({len(vt.related_subdomains)}):**")
+                        st.code("\n".join(vt.related_subdomains[:200]))
+                    if getattr(vt, "related_ips", None):
+                        st.write(f"**Пов'язані IP ({len(vt.related_ips)}):**")
+                        st.code("\n".join(vt.related_ips))
+
+                    # --- НОВЕ: повний сирий JSON у розкривному блоці ---
+                    with st.expander("VirusTotal — повний сирий JSON (/domains/{domain})"):
+                        raw = getattr(vt, "raw", None)
+                        if raw:
+                            st.json(raw)
+                            # кнопка для завантаження повної відповіді
+                            pretty = json.dumps(raw, ensure_ascii=False, indent=2)
+                            st.download_button(
+                                label="⬇️ Завантажити JSON",
+                                data=pretty.encode("utf-8"),
+                                file_name=f"virustotal_{vt.domain}.json",
+                                mime="application/json",
+                            )
+                        else:
+                            st.write("—")
+
+
+                    with st.expander("VirusTotal — сирий JSON субдоменів (relationships/subdomains)"):
+                        raw_subs = getattr(vt, "raw_subdomains", None)
+                        st.json(raw_subs or {})
+                    with st.expander("VirusTotal — сирий JSON резолюшнів (relationships/resolutions)"):
+                        raw_res = getattr(vt, "raw_resolutions", None)
+                        st.json(raw_res or {})
 
             with tab_json:
                 blob = json.dumps(res.model_dump(mode="json"), ensure_ascii=False, indent=2)

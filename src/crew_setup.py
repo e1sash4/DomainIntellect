@@ -22,6 +22,7 @@ from models import DomainResult
 def build_summary_prompt(domain_result: DomainResult) -> str:
     """Створює промпт для LLM зі зведенням зібраних фактів."""
     lines = [f"Домен: {domain_result.domain}"]
+
     if domain_result.whois:
         lines.append("\nWHOIS:")
         if domain_result.whois.registrar:
@@ -30,28 +31,39 @@ def build_summary_prompt(domain_result: DomainResult) -> str:
             lines.append(f" Created: {domain_result.whois.creation_date}")
         if domain_result.whois.expiration_date:
             lines.append(f" Expires: {domain_result.whois.expiration_date}")
+
     if domain_result.dns:
         lines.append("\nDNS:")
-        for k, vs in (domain_result.dns.records or {}).items():
+        records = domain_result.dns.records or {}
+        for k, vs in records.items():
+            vs = vs or []
             lines.append(f" {k}: {', '.join(vs[:10])}{'…' if len(vs) > 10 else ''}")
         if domain_result.dns.subdomains_found:
             lines.append(f" Subdomains: {len(domain_result.dns.subdomains_found)} found")
+
     if domain_result.ssl:
         lines.append("\nSSL:")
         if domain_result.ssl.issuer_cn:
             lines.append(f" Issuer: {domain_result.ssl.issuer_cn}")
         if domain_result.ssl.not_after:
             lines.append(f" Valid till: {domain_result.ssl.not_after}")
-    if domain_result.osint:
-        lines.append("\nOSINT:")
-        if domain_result.osint.crtsh_names:
-            lines.append(f" crt.sh names: {len(domain_result.osint.crtsh_names)}")
-        if domain_result.osint.shodan_hosts:
-            lines.append(f" Shodan hosts: {len(domain_result.osint.shodan_hosts)}")
+
+    # ✅ Замість неіснуючого domain_result.osint — окремо CRT і Shodan
+    if getattr(domain_result, "crt", None):
+        names = domain_result.crt.crtsh_names or []
+        lines.append("\nCRT.sh:")
+        lines.append(f" crt.sh names: {len(names)}")
+
+    if getattr(domain_result, "shodan", None):
+        hosts = domain_result.shodan.hosts or []
+        lines.append("\nShodan:")
+        lines.append(f" Shodan hosts: {len(hosts)}")
+
     if domain_result.errors:
         lines.append("\nПомилки:")
         for e in domain_result.errors:
             lines.append(f" {e.agent}: {e.message}")
+
     lines.append("\nСформуй короткий (5–8 речень) технічний підсумок і можливі ризики.")
     return "\n".join(lines)
 
@@ -74,7 +86,6 @@ def make_crew() -> Optional[Crew]:
         verbose=True,
     )
 
-
     # Завдання: на вході — текстовий промпт із фактами, на виході — Markdown‑звіт
     summarize_task = Task(
         description=(
@@ -86,7 +97,6 @@ def make_crew() -> Optional[Crew]:
             "Стислий Markdown‑звіт (короткий підсумок, ключові ризики, рекомендації)."
         ),
     )
-
 
     crew = Crew(
         agents=[analyst],

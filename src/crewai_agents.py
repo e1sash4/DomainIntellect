@@ -6,11 +6,14 @@ from pydantic import BaseModel, Field
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool # офіційний спосіб створення кастом‑Tool
 
-from models import WhoisResult, DNSResult, SSLResult, OSINTResult, DomainResult
+from models import WhoisResult, DNSResult, SSLResult, CrtResult, ShodanResult, DomainResult, VirusTotalResult
 from agents.whois_agent import WhoisAgent
 from agents.dns_agent import DNSAgent
 from agents.ssl_agent import SSLAgent
-from agents.osint_agent import OSINTAgent
+from agents.crt_agent import CrtAgent
+from agents.shodan_agent import ShodanAgent
+from agents.virustotal_agent import VirusTotalAgent
+
 
 # ---------- Input schema для інструментів ----------
 class DomainInput(BaseModel):
@@ -41,15 +44,30 @@ class SSLTool(BaseTool):
     def _run(self, domain: str) -> dict:
         return SSLAgent().run(domain).model_dump()
 
-class OSINTTool(BaseTool):
-    name: str = "osint_passive"
-    description: str = "Пасивний OSINT (crt.sh, Shodan* якщо є ключ) — повертає OSINTResult."
+class CrtTool(BaseTool):
+    name: str = "crt_passive"
+    description: str = "Збери пасивні домени через crt.sh."
     args_schema: type[BaseModel] = DomainInput
 
     def _run(self, domain: str) -> dict:
-        return OSINTAgent().run(domain).model_dump()
+        return CrtAgent().run(domain).model_dump()
+
+class ShodanTool(BaseTool):
+    name: str = "shodan_scan"
+    description: str = "Отримай інформацію про хости через Shodan (за API key)."
+    args_schema: type[BaseModel] = DomainInput
+
+    def _run(self, domain: str) -> dict:
+        return ShodanAgent().run(domain).model_dump()
 
 
+class VirusTotalTool(BaseTool):
+    name: str = "virustotal_lookup"
+    description: str = "Отримай VirusTotal репутацію та артефакти для домену."
+    args_schema: type[BaseModel] = DomainInput
+
+    def _run(self, domain: str) -> dict:
+        return VirusTotalAgent().run(domain).model_dump()
 # ---------- Побудова команди та задач ----------
 
 def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
@@ -57,7 +75,9 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
     whois_tool = WhoisTool()
     dns_tool = DNSTool()
     ssl_tool = SSLTool()
-    osint_tool = OSINTTool()
+    crt_tool = CrtTool()
+    shodan_tool = ShodanTool()
+    vt_tool = VirusTotalTool()
 
     whois_specialist = Agent(
         role="WHOIS Specialist",
@@ -92,16 +112,26 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
                    "Твоя задача — надати достовірну технічну інформацію про сертифікат."),
         tools=[ssl_tool], allow_delegation=False, verbose=True,
     )
-    osint_specialist = Agent(
-        role="OSINT Specialist",
-        goal=("Зібрати з відкритих джерел усю доступну публічну інформацію про домен, "
-              "використовуючи пасивні методи — зокрема дані з сервісів crt.sh, Shodan. "
-              "Результат має бути представлений у форматі JSON."),
-        backstory=("Ти — OSINT-аналітик, який досконало володіє методами пасивної розвідки. "
-                   "Ти вмієш обережно працювати з відкритими джерелами, дотримуючись лімітів "
-                   "API та не створюючи зайвих запитів. Ти орієнтований на точність, "
-                   "а не кількість, і повертаєш лише достовірні дані у структурованому вигляді."),
-        tools=[osint_tool], allow_delegation=False, verbose=True,
+    crt_specialist = Agent(
+        role="crt.sh Specialist",
+        goal=("Зібрати перелік доменів/піддоменів пов'язаних з цільовим доменом на основі crt.sh."),
+        backstory=("Ти — аналітик сертифікатів, який вміє працювати з базою crt.sh."),
+        tools=[crt_tool], allow_delegation=False, verbose=True,
+    )
+
+    shodan_specialist = Agent(
+        role="Shodan Specialist",
+        goal=("Отримати інформацію про публічні хости (по IP) через Shodan API."),
+        backstory=("Ти — мережевий аналітик, що знає структуру Shodan результатів."),
+        tools=[shodan_tool], allow_delegation=False, verbose=True,
+    )
+
+    vt_specialist = Agent(
+        role="VirusTotal Specialist",
+        goal=("Отримати репутаційні метрики домену у VirusTotal та пов’язані артефакти, "
+              "повернути строго JSON за моделлю VirusTotalResult."),
+        backstory=("Ти знаєш обмеження тарифів VT і дбаєш про валідність JSON."),
+        tools=[vt_tool], allow_delegation=False, verbose=True,
     )
 
     coordinator = Agent(
@@ -159,30 +189,48 @@ def make_domain_crew() -> Tuple[Crew, Dict[str, Task]]:
         output_pydantic = SSLResult,
         tools = [ssl_tool],
     )
-    t_osint = Task(
-        description=(
-            "Для домену {domain} виконай пасивне збирання даних з відкритих джерел: "
-            "отримай перелік доменів/піддоменів із бази crt.sh, знайди пов’язані хости "
-            "у Shodan або Censys (якщо доступно). "
-            "Поверни результат у вигляді структурованого JSON, що відповідає моделі OSINTResult."),
-        agent = osint_specialist,
+
+    t_crt = Task(
+        description=("Збери пасивні домени через crt.sh for {domain}."),
+        agent=crt_specialist,
         expected_output=(
-            "JSON-об’єкт типу OSINTResult, який містить знайдені артефакти з відкритих джерел "
-            "(сертифікати з crt.sh, IP- або хости зі Shodan/Censys) без додаткових описів."),
-        output_pydantic = OSINTResult,
-        tools = [osint_tool],
+            "JSON-об’єкт типу CrtResult: масив знайдених імен (crtsh_names) "
+            "та службові поля; без жодних текстових коментарів."
+        ),
+        output_pydantic=CrtResult,
+        tools=[crt_tool],
+    )
+
+    t_shodan = Task(
+        description=("Отримай дані Shodan по IP для {domain}."),
+        agent=shodan_specialist,
+        expected_output=(
+            "JSON-об’єкт типу ShodanResult: список хостів з IP, портами, "
+            "банерами/сервісами та метаданими; без текстових вставок."
+        ),
+        output_pydantic=ShodanResult,
+        tools=[shodan_tool],
+    )
+
+    t_vt = Task(
+        description=("Отримай у VirusTotal репутацію та пов’язані дані для {domain}. "
+                     "Поверни строго валідний JSON за моделлю VirusTotalResult."),
+        agent=vt_specialist,
+        expected_output=("JSON-об’єкт типу VirusTotalResult без вільного тексту."),
+        output_pydantic=VirusTotalResult,
+        tools=[vt_tool],
     )
 
     crew = Crew(
-        agents=[whois_specialist, dns_specialist, ssl_specialist, osint_specialist],
-        tasks = [t_whois, t_dns, t_ssl, t_osint],
+        agents=[whois_specialist, dns_specialist, ssl_specialist, crt_specialist, shodan_specialist, vt_specialist],
+        tasks = [t_whois, t_dns, t_ssl, t_crt, t_shodan, t_vt],
         process = Process.hierarchical,
         manager_agent = coordinator,
         verbose = True,
     )
 
     return crew, {
-        "whois": t_whois, "dns": t_dns, "ssl": t_ssl, "osint": t_osint
+        "whois": t_whois, "dns": t_dns, "ssl": t_ssl, "crt": t_crt, "shodan": t_shodan, "vt": t_vt
     }
 
 def run_domain_with_crewai(domain: str) -> DomainResult:
@@ -209,6 +257,8 @@ def run_domain_with_crewai(domain: str) -> DomainResult:
     whois = _load(tasks["whois"], WhoisResult)
     dns = _load(tasks["dns"], DNSResult)
     ssl = _load(tasks["ssl"], SSLResult)
-    osint = _load(tasks["osint"], OSINTResult)
+    crt = _load(tasks["crt"], CrtResult)
+    shodan = _load(tasks["shodan"], ShodanResult)
+    vt = _load(tasks["vt"], VirusTotalResult)
 
-    return DomainResult(domain=domain, whois=whois, dns=dns, ssl=ssl, osint=osint)
+    return DomainResult(domain=domain, whois=whois, dns=dns, ssl=ssl, crt=crt, shodan=shodan, virustotal=vt)
